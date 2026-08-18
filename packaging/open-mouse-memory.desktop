@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Open Mouse Memory
+Comment=Configure onboard mouse profiles
+Exec=open-mouse-memory-gui
+Icon=open-mouse-memory
+Terminal=false
+Categories=Settings;HardwareSettings;
+Actions=Tray;
+
+[Desktop Action Tray]
+Name=Start in Tray
+Exec=open-mouse-memory-gui --tray

@@ -1,0 +1,2 @@
+# grant the active user access to logitech hidraw devices
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", MODE="0660", TAG+="uaccess"

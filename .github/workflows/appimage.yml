@@ -1,0 +1,99 @@
+name: appimage
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.85.0
+
+jobs:
+  build:
+    name: build x86-64 AppImage
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libudev-dev pkg-config
+
+      - name: install rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: restore cargo downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-cargo-
+
+      - name: restore release build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-target-release-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-target-release-${{ hashFiles('Cargo.lock') }}-
+            ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-target-release-
+
+      - name: restore AppImage tool cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/open-mouse-memory-tools
+          key: ${{ runner.os }}-appimagetool-${{ hashFiles('packaging/appimage/build.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-appimagetool-
+
+      - name: build AppImage
+        run: ./packaging/appimage/build.sh
+
+      - name: verify AppImage
+        run: |
+          appimage="$(find dist -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage"
+          (
+            cd dist
+            sha256sum --check ./*.sha256
+          )
+          extract_dir="$(mktemp -d)"
+          trap 'rm -rf "$extract_dir"' EXIT
+          (
+            cd "$extract_dir"
+            "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
+          )
+          test -x "$extract_dir/squashfs-root/AppRun"
+          test -f "$extract_dir/squashfs-root/usr/share/applications/open-mouse-memory.desktop"
+
+      - name: upload AppImage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: open-mouse-memory-appimage-x86_64
+          path: |
+            dist/*.AppImage
+            dist/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

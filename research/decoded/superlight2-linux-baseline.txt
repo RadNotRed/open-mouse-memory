@@ -1,0 +1,47 @@
+Experiment: Linux read-only baseline
+Date: 2026-08-18
+Device: Logitech G PRO X SUPERLIGHT 2
+Receiver: 046D:C54D
+Receiver device index: 0x01
+Unit ID: 0723ECD7
+HID++: 4.2
+Firmware: MPM 32.05.B0029
+Bootloader: BL1 71.00.B0012
+
+Relevant runtime features:
+  0x09  0x2202  version 0  EXTENDED_ADJUSTABLE_DPI
+  0x0C  0x8061  version 0  EXTENDED_ADJUSTABLE_REPORT_RATE
+  0x0D  0x8100  version 0  ONBOARD_PROFILES
+
+Observed live state:
+  DPI: X=800, Y=800, LOD code=2
+  Report rate: 1000 Hz
+  Onboard mode: enabled
+  Active profile sector: 0x0001
+
+ONBOARD_PROFILES.GetInfo response:
+  01 07 01 05 01 05 10 00 FF 0A 04 00 00 00 00 00
+
+Decoded descriptor:
+  memory model: 0x01
+  profile format: 0x07
+  macro format: 0x01
+  writable profiles: 5
+  ROM profiles: 1
+  buttons: 5
+  sectors: 16
+  sector size: 255
+  mechanical layout: 0x0A
+  various info: 0x04
+  reserved: 00 00 00 00 00
+
+No profile-memory read or write function was sent during this baseline.
+
+Reversible live-write validation:
+  original mode: onboard, active sector 0x0001
+  switched explicitly to host mode
+  wrote X=800, Y=800, LOD code=2 and verified by readback
+  wrote 1000 Hz and verified by readback
+  restored onboard mode and confirmed active sector 0x0001
+
+The raw-command guard separately rejected ONBOARD_PROFILES function 0x60 with exit code 8 before transport.

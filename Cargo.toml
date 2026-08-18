@@ -1,0 +1,31 @@
+[package]
+name = "open-mouse-memory"
+version = "0.1.0"
+edition = "2024"
+description = "Linux mouse onboard memory manager"
+license = "GPL-3.0-only"
+rust-version = "1.85"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+hex = "0.4"
+hidapi = { version = "2.6", default-features = false, features = ["linux-native"] }
+libc = "0.2"
+ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+eframe = { version = "0.32.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+egui-phosphor = { version = "0.10", default-features = false, features = ["regular"] }
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[profile.release]
+incremental = true
+lto = false
+strip = true
+
+[[bin]]
+name = "open-mouse-memory-gui"
+path = "src/bin/open-mouse-memory-gui.rs"

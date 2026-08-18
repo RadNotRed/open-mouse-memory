@@ -1,0 +1,16 @@
+device: Logitech G PRO X SUPERLIGHT 2
+receiver:
+  usb_id: "046d:c54d"
+  device_index: "0x01"
+unit_id: "0723ECD7"
+transport_ids:
+  wireless: "40A9"
+  usb: "C09B"
+firmware:
+  bootloader: "BL1 71.00.B0012"
+  device: "MPM 32.05.B0029"
+hidpp_version: "4.2"
+onboard_profiles_feature_version: 0
+profile_descriptor: "01 07 01 05 01 05 10 00 FF 0A 04 00 00 00 00 00"
+profile_format: "0x07"
+captures: []
