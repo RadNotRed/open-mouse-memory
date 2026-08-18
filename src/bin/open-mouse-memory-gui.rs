@@ -24,6 +24,7 @@ use open_mouse_memory::profile::{
     ButtonAction, MAX_DPI, MAX_DPI_POINTS, MIN_DPI, MouseButton, Profile, ProfileLibrary, REPORT_RATES,
 };
 use serde::{Deserialize, Serialize};
+use winit::platform::x11::EventLoopBuilderExtX11;
 
 const ACCENT: Color32 = Color32::from_rgb(31, 173, 255);
 const ACCENT_DARK: Color32 = Color32::from_rgb(8, 115, 176);
@@ -38,6 +39,7 @@ const CACHE_SCHEMA_VERSION: u8 = 1;
 const SETTINGS_SCHEMA_VERSION: u8 = 1;
 const APP_SLUG: &str = "open-mouse-memory";
 const AUTOSTART_MARKER: &str = "X-OpenMouseMemory-Autostart=true";
+const WINDOW_BACKEND_ENV: &str = "OPEN_MOUSE_MEMORY_BACKEND";
 const REFRESH_INTERVALS: [u64; 4] = [30, 60, 300, 900];
 const NAV_CONTROL_SIZE: f32 = 50.0;
 const NAV_ICON_SIZE: f32 = 24.0;
@@ -56,7 +58,7 @@ fn main() {
     let start_hidden =
         matches!(argument.as_deref(), Some(value) if value == "--tray" || value == "--tray-only");
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("open-mouse-memory")
             .with_title("Open Mouse Memory")
@@ -64,15 +66,50 @@ fn main() {
             .with_min_inner_size([960.0, 640.0])
             .with_decorations(false)
             .with_icon(Arc::new(app_window_icon(64)))
-            .with_visible(!start_hidden),
+            .with_visible(true),
         ..Default::default()
     };
+    let window_hiding_supported = configure_window_backend(&mut options);
+    options.viewport = options
+        .viewport
+        .with_visible(!(start_hidden && window_hiding_supported));
     if let Err(error) = eframe::run_native(
         "Open Mouse Memory",
         options,
-        Box::new(move |context| Ok(Box::new(OpenMouseMemoryApp::new(context, start_hidden)))),
+        Box::new(move |context| {
+            Ok(Box::new(OpenMouseMemoryApp::new(
+                context,
+                start_hidden,
+                window_hiding_supported,
+            )))
+        }),
     ) {
         eprintln!("ERROR: {error}");
+    }
+}
+
+fn configure_window_backend(options: &mut eframe::NativeOptions) -> bool {
+    let use_x11 = should_use_x11_backend(
+        std::env::var_os("DISPLAY").as_deref(),
+        std::env::var_os(WINDOW_BACKEND_ENV).as_deref(),
+    );
+    if use_x11 {
+        options.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_x11();
+        }));
+    }
+    use_x11
+}
+
+fn should_use_x11_backend(display: Option<&std::ffi::OsStr>, preference: Option<&std::ffi::OsStr>) -> bool {
+    let x11_available = display.is_some_and(|value| !value.is_empty());
+    let preference = preference
+        .and_then(std::ffi::OsStr::to_str)
+        .map(str::to_ascii_lowercase);
+    match preference.as_deref() {
+        Some("wayland") => false,
+        Some("x11") => x11_available,
+        _ => x11_available,
     }
 }
 
@@ -326,10 +363,11 @@ struct OpenMouseMemoryApp {
     last_device_refresh: Instant,
     startup_hidden_frames: u8,
     force_quit: bool,
+    window_hiding_supported: bool,
 }
 
 impl OpenMouseMemoryApp {
-    fn new(context: &eframe::CreationContext<'_>, start_hidden: bool) -> Self {
+    fn new(context: &eframe::CreationContext<'_>, start_hidden: bool, window_hiding_supported: bool) -> Self {
         configure_style(&context.egui_ctx);
         let settings = load_app_settings();
         let cached = load_runtime_cache();
@@ -343,7 +381,7 @@ impl OpenMouseMemoryApp {
         let (tray_sender, tray_receiver) = mpsc::channel();
         let tray_item = MouseTray::new(tray_sender, context.egui_ctx.clone());
         let tray = tray_item.spawn().ok();
-        let startup_hidden_frames = u8::from(start_hidden && tray.is_some()) * 3;
+        let startup_hidden_frames = u8::from(start_hidden && tray.is_some() && window_hiding_supported) * 3;
         let mut app = Self {
             view: View::Sensitivity,
             settings,
@@ -363,9 +401,15 @@ impl OpenMouseMemoryApp {
             last_device_refresh: Instant::now(),
             startup_hidden_frames,
             force_quit: false,
+            window_hiding_supported,
         };
-        if start_hidden && app.tray.is_none() {
-            app.set_notice("Tray-only mode needs a compatible system tray");
+        if start_hidden && !app.can_hide_to_tray() {
+            let message = if app.tray.is_none() {
+                "Tray-only mode needs a compatible system tray"
+            } else {
+                "Tray-only mode needs X11 or XWayland"
+            };
+            app.set_notice(message);
         }
         app.sync_tray(false);
         app.start_task(DeviceTask::Refresh { load_settings: true });
@@ -457,13 +501,17 @@ impl OpenMouseMemoryApp {
         self.tray.as_ref().is_some_and(|tray| !tray.is_closed())
     }
 
+    fn can_hide_to_tray(&self) -> bool {
+        self.window_hiding_supported && self.tray_is_available()
+    }
+
     fn hide_window(&self, context: &egui::Context) {
         context.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         context.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
     fn request_close(&mut self, context: &egui::Context) {
-        if self.settings.close_to_tray && self.tray_is_available() {
+        if self.settings.close_to_tray && self.can_hide_to_tray() {
             self.hide_window(context);
         } else {
             self.force_quit = true;
@@ -472,7 +520,7 @@ impl OpenMouseMemoryApp {
     }
 
     fn request_minimize(&self, context: &egui::Context) {
-        if self.settings.minimize_to_tray && self.tray_is_available() {
+        if self.settings.minimize_to_tray && self.can_hide_to_tray() {
             self.hide_window(context);
         } else {
             context.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -492,12 +540,12 @@ impl OpenMouseMemoryApp {
             context.request_repaint_after(Duration::from_millis(16));
         }
         let close_requested = context.input(|input| input.viewport().close_requested());
-        if close_requested && !self.force_quit && self.settings.close_to_tray && self.tray_is_available() {
+        if close_requested && !self.force_quit && self.settings.close_to_tray && self.can_hide_to_tray() {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.hide_window(context);
         }
         let minimized = context.input(|input| input.viewport().minimized == Some(true));
-        if minimized && self.settings.minimize_to_tray && self.tray_is_available() {
+        if minimized && self.settings.minimize_to_tray && self.can_hide_to_tray() {
             self.hide_window(context);
         }
     }
@@ -590,6 +638,7 @@ impl OpenMouseMemoryApp {
     fn settings_view(&mut self, ui: &mut egui::Ui) {
         let mut updated = self.settings.clone();
         let tray_available = self.tray_is_available();
+        let can_hide_to_tray = self.can_hide_to_tray();
         let settings_path = app_settings_path()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "Configuration path unavailable".to_owned());
@@ -617,6 +666,8 @@ impl OpenMouseMemoryApp {
                     "Background and tray",
                     "The hidden mode keeps this process running without a visible window",
                     |ui| {
+                        let close_to_tray_enabled = can_hide_to_tray || updated.close_to_tray;
+                        let minimize_to_tray_enabled = can_hide_to_tray || updated.minimize_to_tray;
                         setting_toggle(
                             ui,
                             &mut updated.launch_on_startup,
@@ -637,21 +688,31 @@ impl OpenMouseMemoryApp {
                             ui,
                             &mut updated.close_to_tray,
                             "Close to tray",
-                            "The close button hides the window instead of stopping the backend",
-                            true,
+                            if self.window_hiding_supported {
+                                "The close button hides the window instead of stopping the backend"
+                            } else {
+                                "Requires X11 or XWayland"
+                            },
+                            close_to_tray_enabled,
                         );
                         ui.separator();
                         setting_toggle(
                             ui,
                             &mut updated.minimize_to_tray,
                             "Minimize to tray",
-                            "Remove the window from the taskbar when it is minimized",
-                            true,
+                            if self.window_hiding_supported {
+                                "Remove the window from the taskbar when it is minimized"
+                            } else {
+                                "Requires X11 or XWayland"
+                            },
+                            minimize_to_tray_enabled,
                         );
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            let (status, color) = if tray_available {
+                            let (status, color) = if can_hide_to_tray {
                                 ("Tray service available", ACCENT)
+                            } else if tray_available {
+                                ("Window hiding needs X11 or XWayland", WARNING)
                             } else {
                                 ("No compatible tray host detected", WARNING)
                             };
@@ -659,7 +720,7 @@ impl OpenMouseMemoryApp {
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 hide_now = ui
                                     .add_enabled(
-                                        tray_available,
+                                        can_hide_to_tray,
                                         accent_button(format!("{}  Hide to tray now", icons::EYE_SLASH)),
                                     )
                                     .clicked();
@@ -2857,5 +2918,15 @@ mod tests {
             preferred_autostart_executable(Some(appimage), current),
             PathBuf::from("/opt/Open-Mouse-Memory.AppImage")
         );
+    }
+
+    #[test]
+    fn selects_x11_when_it_is_available() {
+        assert!(should_use_x11_backend(Some(std::ffi::OsStr::new(":0")), None));
+        assert!(!should_use_x11_backend(
+            Some(std::ffi::OsStr::new(":0")),
+            Some(std::ffi::OsStr::new("wayland"))
+        ));
+        assert!(!should_use_x11_backend(None, Some(std::ffi::OsStr::new("x11"))));
     }
 }

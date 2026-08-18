@@ -17,6 +17,7 @@ serde_json = "1"
 thiserror = "2"
 eframe = { version = "0.32.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 egui-phosphor = { version = "0.10", default-features = false, features = ["regular"] }
+winit = { version = "0.30.13", default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
 pretty_assertions = "1"
