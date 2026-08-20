@@ -1,5 +1,9 @@
 # 🖱️ Open Mouse Memory
 
+<p align="center">
+  <img src="docs/assets/open-mouse-memory-hero.png" alt="Open Mouse Memory shown in a layered perspective showcase" width="100%">
+</p>
+
 A lightweight Linux app for managing mouse onboard memory.
 
 Tested with the Logitech PRO X SUPERLIGHT 2. Other HID++ mice may work but still need testing.
